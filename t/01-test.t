@@ -10,7 +10,7 @@ my @domains = qw(
     freebsd.org
     reg.ru
     ns1.nameself.com.NS
-    google.com
+    perl.com
 );
 
 my @domains_not_reg = qw(

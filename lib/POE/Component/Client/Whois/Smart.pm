@@ -8,7 +8,7 @@ use POE::Component::Client::Whois::Smart::Data;
 use HTTP::Request;
 #use Data::Dumper;
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 our $DEBUG;
 our @local_ips = ();
 our %servers_ban = ();
