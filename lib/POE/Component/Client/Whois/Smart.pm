@@ -8,7 +8,7 @@ use POE::Component::Client::Whois::Smart::Data;
 use HTTP::Request;
 #use Data::Dumper;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 our $DEBUG;
 our @local_ips = ();
 our %servers_ban = ();
@@ -1139,7 +1139,6 @@ Default 30 sec.
 =item local_ips
 
 List of local IP addresses to use for WHOIS queries.
-Addresses will be used used successively in the successive queries
 
 =item cache_dir
 
