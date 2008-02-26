@@ -8,7 +8,7 @@ use POE::Component::Client::Whois::Smart::Data;
 use HTTP::Request;
 #use Data::Dumper;
 
-our $VERSION = '0.07';
+our $VERSION = '0.08';
 our $DEBUG;
 our @local_ips = ();
 our %servers_ban = ();
@@ -82,7 +82,9 @@ sub _query_done {
     my ($kernel, $heap, $session, $response) = @_[KERNEL, HEAP, SESSION, ARG0];
 
     my ($whois, $error);
-    if ($response->{from_cache}) {
+    if ($response->{error}) {
+        $error = $response->{error};
+    } elsif($response->{from_cache}) {
         $whois = $response->{whois};
         #$heap->{tasks}--;
     } elsif ($response->{host} eq "http") {
@@ -262,7 +264,6 @@ sub _start {
             $request->{host}       = $server;
             $request->{from_cache} = 1;
             $kernel->post( $session => $request->{event} => $request );
-            
             return undef;
         }
     }
@@ -285,7 +286,6 @@ sub _connect {
         $self->{request}->{rism},
     );
     
-    
     unless ($local_ip) {
         my $unban_time = unban_time(
             $self->{request}->{host},
@@ -293,7 +293,7 @@ sub _connect {
             $self->{request}->{rism},                        
         );
         my $delay_err = $kernel->delay_add('_connect', $unban_time);
-        print "All IPs banned for server ".$self->{request}->{host}.
+        warn "All IPs banned for server ".$self->{request}->{host}.
             ", waiting: $unban_time sec\n"
                 if $DEBUG;
         return undef;
@@ -325,16 +325,19 @@ sub _connect_http {
     my ($kernel,$self) = @_[KERNEL,OBJECT];
     POE::Component::Client::HTTP->spawn(
         Alias => 'ua',
-        Timeout => $self->{timeout},
+        Timeout => $self->{request}->{timeout},
     );
     
     my $curl;    
     my ($url, $tld, %form) = get_http_query_url($self->{request}->{query});        
     $self->{request}->{tld} = $tld;
+    my $referer = delete $form{referer} if %form && $form{referer};
     my $method = scalar(keys %form) ? 'POST' : 'GET';
     
-    my $req = new HTTP::Request $method, $url;
-    
+    my $header = HTTP::Headers->new;
+    $header->header('Referer' => $referer) if $referer;
+    my $req = new HTTP::Request $method, $url, $header;
+
     if ($method eq 'POST') {
         $curl = url("http:");
         $req->content_type('application/x-www-form-urlencoded');
@@ -410,8 +413,8 @@ sub _sock_up {
         return undef;
     }
 
+    $kernel->delay_add( '_time_out' => $self->{request}->{timeout});
     $self->{'socket'}->put( $self->{request}->{query_real} );
-    $kernel->delay( '_time_out' => $self->{timeout});
     
     undef;
 }
@@ -447,7 +450,13 @@ sub _sock_input {
 sub _time_out {
     my ($kernel,$self) = @_[KERNEL,OBJECT];
     delete $self->{'socket'};
-  
+    warn "Timeout!";
+    
+    my $request = delete $self->{request};
+    my $session = delete $request->{manager_id};
+    $request->{error} = "Timeout";
+    $kernel->post( $session => $request->{event} => $request );
+    
     undef;
 }
 
@@ -718,6 +727,9 @@ sub get_http_query_url {
         $url = "http://worldsite.ws/utilities/lookup.dhtml?domain=$name&tld=$tld";
     } elsif ($tld eq 'kz') {
         $url = "http://www.nic.kz/cgi-bin/whois?query=$name.$tld&x=0&y=0";
+    } elsif ($tld eq 'vn') {
+	$url = "http://www.tenmien.vn/jsp/jsp/tracuudomainchitiet.jsp?type=$name.$tld";
+	$form{referer} = 'http://www.tenmien.vn/jsp/jsp/tracuudomain1.jsp';
     } else {
         return 0;
     }
@@ -851,7 +863,17 @@ sub parse_www_content {
 	} else {
 	    return 0;
 	}
-
+    } elsif ($tld eq 'vn') {
+	if ($resp =~/#ENGLISH.*?<\/tr>(.+?)<\/table>/si) {
+	    $resp = $1;
+	    $resp =~ s|</?font.*?>||ig;
+	    $resp =~ s|&nbsp;||ig;
+	    $resp =~ s|<br>|\n|ig;
+	    $resp =~ s|<tr>\s*<td.*?>\s*(.*?)\s*</td>\s*<td.*?>\s*(.*?)\s*</td>\s*</tr>|$1 $2\n|isg;
+	    $resp =~ s|^\s*||mg;
+	} else {
+	    return 0;
+	};
     } else {
         return 0;
     }
