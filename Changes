@@ -9,3 +9,6 @@ Revision history for POE::Component::Client::Whois::Smart
 0.08    Feb 26 2008
         - Added whois-server for .VN (http)
         - Fixed timeouts.
+
+0.09	Feb 29 2008
+	- Uses Net::Whois::Raw::Data and Net::Whois::Raw::Common 

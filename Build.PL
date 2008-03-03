@@ -11,7 +11,7 @@ my $build = Module::Build->new(
 	'POE::Wheel::ReadWrite' => 0,
 	'POE::Wheel::SocketFactory' => 0,
 	'POE::Component::Client::HTTP' => 0,
-        'Net::Netmask' => 0,        
+	'Net::Whois::Raw' => '1.43',
     },
     create_makefile_pl => 'traditional',
 );

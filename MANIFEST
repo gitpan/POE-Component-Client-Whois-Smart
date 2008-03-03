@@ -1,7 +1,6 @@
 Build.PL
 Changes
 lib/POE/Component/Client/Whois/Smart.pm
-lib/POE/Component/Client/Whois/Smart/Data.pm
 Makefile.PL
 MANIFEST
 META.yml

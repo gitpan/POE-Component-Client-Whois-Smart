@@ -4,11 +4,12 @@ use strict;
 use warnings;
 use Socket;
 use POE qw(Filter::Line Wheel::ReadWrite Wheel::SocketFactory Component::Client::HTTP);
-use POE::Component::Client::Whois::Smart::Data;
 use HTTP::Request;
+use Net::Whois::Raw::Common;
+use Net::Whois::Raw::Data;
 #use Data::Dumper;
 
-our $VERSION = '0.08';
+our $VERSION = '0.09';
 our $DEBUG;
 our @local_ips = ();
 our %servers_ban = ();
@@ -120,7 +121,6 @@ sub _query_done {
         }
     }
     
-    
     $heap->{tasks}--;
     
     if (!$error || !$heap->{result}->{$response->{original_query}}) {
@@ -190,44 +190,16 @@ sub get_whois {
     $args{lc $_} = delete $args{$_} for keys %args;
 
     unless ( $args{host} ) {
-        my $whois_server;
-        my $ips = POE::Component::Client::Whois::Smart::Data->new();
-        SWITCH: {
-            if (is_ipaddr($args{query})) {
-                $whois_server = ( $ips->get_ip_server( $args{query} ) )[0];
-                unless ( $whois_server ) {
-                    warn "Couldn\'t determine correct whois server, falling back on arin\n"
-                        if $DEBUG;
-                    $whois_server = 'whois.arin.net';
-                }
-                last SWITCH;
-            }
-            if (is_ip6addr($args{query})) {
-                warn "IPv6 detected, defaulting to 6bone\n";
-                $whois_server = 'whois.6bone.net';
-                last SWITCH;
-            }
-            $whois_server = get_server($args{query}, $args{params}->{use_cnames});
-            unless ( $whois_server ) {
-                warn "Could not determine whois server from query string, defaulting to internic \n";
-                $whois_server = 'whois.internic.net';
-            }
+        my $whois_server = get_server($args{query}, $args{params}->{use_cnames});
+        unless ( $whois_server ) {
+            warn "Could not determine whois server from query string, defaulting to internic \n";
+            $whois_server = 'whois.internic.net';
         }
         $args{host} = $whois_server;
     }
 
-    $args{query_real} = $args{query};
-    
-    unless ($args{host} eq "http") {
-        $args{query_real} =~ s/.NS$//i;
-        if ($args{host} eq 'whois.crsnic.net') {
-            $args{query_real} = "domain ".$args{query_real};
-        } elsif ($args{host} eq 'whois.denic.de') {
-            $args{query_real} = "-T dn,ace -C ISO-8859-1 ".$args{query_real};
-        } elsif ($args{host} eq 'whois.nic.name') {
-            $args{query_real} = "domain=".$args{query_real};
-        }
-    }
+    $args{query_real} = get_real_whois_query($args{query}, $args{host})
+        unless ($args{host} eq "http");
 
     my $self = bless { request => \%args }, $package;
 
@@ -328,8 +300,9 @@ sub _connect_http {
         Timeout => $self->{request}->{timeout},
     );
     
-    my $curl;    
-    my ($url, $tld, %form) = get_http_query_url($self->{request}->{query});        
+    my ($url, %form) = get_http_query_url($self->{request}->{query});
+    my ($name, $tld) = split_domain($self->{request}->{query});
+    
     $self->{request}->{tld} = $tld;
     my $referer = delete $form{referer} if %form && $form{referer};
     my $method = scalar(keys %form) ? 'POST' : 'GET';
@@ -339,7 +312,7 @@ sub _connect_http {
     my $req = new HTTP::Request $method, $url, $header;
 
     if ($method eq 'POST') {
-        $curl = url("http:");
+        my $curl = url("http:");
         $req->content_type('application/x-www-form-urlencoded');
         $curl->query_form(%form);
         $req->content($curl->equery);
@@ -482,16 +455,16 @@ sub get_recursion {
 	    $new_server = $1;
 	    last;
 	} elsif (/Contact information can be found in the (\S+)\s+database/) {
-	    $new_server = $POE::Component::Client::Whois::Smart::Data::ip_whois_servers{ $1 };
+	    $new_server = $Net::Whois::Raw::Data::ip_whois_servers{ $1 };
             #last;
     	} elsif ((/OrgID:\s+(\w+)/ || /descr:\s+(\w+)/) && is_ipaddr($query)) {
 	    my $value = $1;	
 	    if($value =~ /^(?:RIPE|APNIC|KRNIC|LACNIC)$/) {
-		$new_server = $POE::Component::Client::Whois::Smart::Data::ip_whois_servers{$value};
+		$new_server = $Net::Whois::Raw::Data::ip_whois_servers{$value};
 		last;
 	    }
     	} elsif (/^\s+Maintainer:\s+RIPE\b/ && is_ipaddr($query)) {
-            $new_server = $POE::Component::Client::Whois::Smart::Data::servers{RIPE};
+            $new_server = $Net::Whois::Raw::Data::servers{RIPE};
             last;
 	}
     }
@@ -504,77 +477,6 @@ sub get_recursion {
     }
     
     return $new_server, $new_query;
-}
-
-# get whois-server for domain
-sub get_server {
-    my ($dom, $use_cnames) = @_;
-
-    my $tld = uc get_dom_tld( $dom );
-    $tld =~ s/^XN--(\w)/XN---$1/;
-
-    if (grep { $_ eq $tld } @POE::Component::Client::Whois::Smart::Data::www_whois) {
-       return 'http';
-    }
-
-    my $cname = "$tld.whois-servers.net";
-
-    my $srv = $POE::Component::Client::Whois::Smart::Data::servers{$tld} || $cname;
-    $srv = $cname if $use_cnames && gethostbyname($cname);
-
-    return $srv;
-}
-
-# get domain TLD
-sub get_dom_tld {
-    my ($dom) = @_;
-
-    my $tld;
-    if (is_ipaddr($dom)) {
-        $tld = "IP";
-    } elsif (domain_level($dom) == 1) {
-        $tld = "NOTLD";
-    } else { 
-        my @alltlds = keys %POE::Component::Client::Whois::Smart::Data::servers;
-        @alltlds = sort { dlen($b) <=> dlen($a) } @alltlds;
-        foreach my $awailtld (@alltlds) {
-            $awailtld = lc $awailtld;
-            if ($dom =~ /(.+?)\.($awailtld)$/) {
-                $tld = $2;
-                last;
-            }
-        }
-        unless ($tld) {
-            my @tokens = split(/\./, $dom);
-            $tld = $tokens[-1]; 
-        }
-    }
-
-    return $tld;
-}
-
-# get domain level
-sub domain_level {
-    my ($str) = @_;
-    my $dotcount = $str =~ tr/././;
-    return $dotcount + 1;
-}
-
-#
-sub dlen {
-    my ($str) = @_;
-    return length($str) * domain_level($str);
-}
-
-# check, is it IP-address?
-sub is_ipaddr {
-    $_[0] =~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-}
-
-# check, is it IPv6-address?
-sub is_ip6addr {
-    # TODO: bad implementation!!!!!
-    $_[0] =~ /:/;
 }
 
 # chech if Connection rate exceeded, if whois info found, strip copyrights
@@ -591,13 +493,13 @@ sub process_whois {
             }
         }
     
-        my $exceed = $POE::Component::Client::Whois::Smart::Data::exceed{$server};
+        my $exceed = $Net::Whois::Raw::Data::exceed{$server};
         if ($exceed && $whois =~ /$exceed/s) {
             return $whois, "Connection rate exceeded";
         }
     
-        my %notfound = %POE::Component::Client::Whois::Smart::Data::notfound;
-        my %strip = %POE::Component::Client::Whois::Smart::Data::strip;
+        my %notfound = %Net::Whois::Raw::Data::notfound;
+        my %strip = %Net::Whois::Raw::Data::strip;
     
         my $notfound = $notfound{$server};
         my @strip = $strip{$server} ? @{$strip{$server}} : ();
@@ -621,271 +523,6 @@ sub process_whois {
     }
     
     return $whois, undef;
-}
-
-# split domain on name and TLD
-sub split_domain {
-    my ($dom) = @_;
-
-    my $tld = get_dom_tld( $dom );
-
-    my $name;
-    if (uc $tld eq 'IP' || $tld eq 'NOTLD') {
-	$name = $dom;
-    } else {
-	$dom =~ /(.+?)\.$tld$/; # or die "Can't match $tld in $dom";
-	$name = $1;
-    }
-
-    return ($name, $tld);
-}
-
-#  check if whois info found
-sub check_existance {
-    $_ = $_[0];
-
-    return undef if
-        /is unavailable/is ||
-        /No entries found for the selected source/is ||
-        /Not found:/s ||
-        /No match\./s ||
-        /is available for/is ||
-        /Not found/is &&
-            !/ your query returns "NOT FOUND"/ &&
-            !/Domain not found locally/ ||
-        /No match for/is ||
-        /No Objects Found/s ||
-        /No domain records were found/s ||
-        /No such domain/s ||
-        /No entries found in the /s ||
-        /Could not find a match for/s ||
-        /Unable to find any information for your query/s ||
-        /is not registered/s ||
-        /no matching record/s ||
-	/No match found\n/ ||
-        /NOMATCH/s;
-
-    return 1;
-}
-
-sub strip_whois {
-    $_ = $_[0];
-
-    s/The Data.+(policy|connection)\.\n//is;
-    s/% NOTE:.+prohibited\.//is;
-    s/Disclaimer:.+\*\*\*\n?//is;
-    s/NeuLevel,.+A DOMAIN NAME\.//is;
-    s/For information about.+page=spec//is;
-    s/NOTICE: Access to.+this policy.//is;
-    s/The previous information.+completeness\.//s;
-    s/NOTICE AND TERMS OF USE:.*modify these terms at any time\.//s;
-    s/TERMS OF USE:.*?modify these terms at any time\.//s;
-    s/NOTICE:.*for this registration\.//s;
-
-    s/By submitting a WHOIS query.+?DOMAIN AVAILABILITY.\n?//s;
-    s/Registration and WHOIS.+?its accuracy.\n?//s;
-    s/Disclaimer:.+?\*\*\*\n?//s;
-    s/The .COOP Registration .+ Information\.//s;
-    s/Whois Server Version \d+\.\d+.//is;
-    s/NeuStar,.+www.whois.us\.//is;
-    s/\n?Domain names in the \.com, .+ detailed information.\n?//s;
-    s/\n?The Registry database .+?Registrars\.\n//s;
-    s/\n?>>> Last update of .+? <<<\n?//;
-    s/% .+?\n//gs;
-    s/Domain names can now be registered.+?for detailed information.//s;
-
-    s/^\n+//s;
-    s/(?:\s*\n)+$/\n/s;
-
-    $_;
-}
-
-# get URL for query via HTTP
-# %param: domain*
-sub get_http_query_url {
-    my ($domain) = @_;    
-    
-    my ($name, $tld) = split_domain($domain);
-    my ($url, %form);
-
-    if ($tld eq 'tv') {
-        $url = "http://www.tv/cgi-bin/whois.cgi?domain=$name&tld=tv";
-    } elsif ($tld eq 'mu') {
-        $url = 'http://www.mu/cgi-bin/mu_whois.cgi';
-        $form{whois} = $name;
-    } elsif ($tld eq 'spb.ru' || $tld eq 'msk.ru') {
-        $url = "http://www.relcom.ru/Services/Whois/?fullName=$name.$tld";
-    } elsif ($tld eq 'ru' || $tld eq 'su') {
-        $url = "http://www.nic.ru/whois/?domain=$name.$tld";
-    } elsif ($tld eq 'ip') {
-        $url = "http://www.nic.ru/whois/?ip=$name";
-    } elsif ($tld eq 'in') {
-        $url = "http://www.registry.in/cgi-bin/whois.cgi?whois_query_field=$name";
-    } elsif ($tld eq 'cn') {
-        $url = "http://ewhois.cnnic.net.cn/whois?value=$name.$tld&entity=domain";
-    } elsif ($tld eq 'ws') {
-        $url = "http://worldsite.ws/utilities/lookup.dhtml?domain=$name&tld=$tld";
-    } elsif ($tld eq 'kz') {
-        $url = "http://www.nic.kz/cgi-bin/whois?query=$name.$tld&x=0&y=0";
-    } elsif ($tld eq 'vn') {
-	$url = "http://www.tenmien.vn/jsp/jsp/tracuudomainchitiet.jsp?type=$name.$tld";
-	$form{referer} = 'http://www.tenmien.vn/jsp/jsp/tracuudomain1.jsp';
-    } else {
-        return 0;
-    }
-        
-    return $url, $tld, %form;
-}
-
-# Parse content received from HTTP server
-# %param: resp*, tld*
-sub parse_www_content {
-    my ($resp, $tld) = @_;
-    
-    # below untached from Net::Whois::Raw
-    chomp $resp;
-    $resp =~ s/\r//g;
-
-    my $ishtml;
-
-    if ($tld eq 'tv') {
-
-        return 0 unless
-        $resp =~ /(<TABLE BORDER="0" CELLPADDING="4" CELLSPACING="0" WIDTH="95%">.+?<\/TABLE>)/is;
-        $resp = $1;
-        $resp =~ s/<BR><BR>.+?The data in The.+?any time.+?<BR><BR>//is;
-        return 0 if $resp =~ /Whois information is not available for domain/s;
-        $ishtml = 1;
-
-    } elsif ($tld eq 'spb.ru' || $tld eq 'msk.ru') {
-
-        $resp = _koi2win( $resp );
-        return undef unless $resp =~ m|<TABLE BORDER="0" CELLSPACING="0" CELLPADDING="2"><TR><TD BGCOLOR="#990000"><TABLE BORDER="0" CELLSPACING="0" CELLPADDING="20"><TR><TD BGCOLOR="white">(.+?)</TD></TR></TABLE></TD></TR></TABLE>|s;
-        $resp = $1;
-
-        return 0 if $resp =~ m/СВОБОДНО/;
-
-        if ($resp =~ m|<PRE>(.+?)</PRE>|s) {
-            $resp = $1;
-        } elsif ($resp =~ m|DNS \(name-серверах\):</H3><BLOCKQUOTE>(.+?)</BLOCKQUOTE><H3>Дополнительную информацию можно получить по адресу:</H3><BLOCKQUOTE>(.+?)</BLOCKQUOTE>|) {
-            my $nameservers = $1;
-            my $emails = $2;
-            my (@nameservers, @emails);
-            while ($nameservers =~ m|<CODE CLASS="h2black">(.+?)</CODE>|g) {
-                push @nameservers, $1;
-            }
-            while ($emails =~ m|<CODE CLASS="h2black"><A HREF=".+?">(.+?)</A></CODE>|g) {
-                push @emails, $1;
-            }
-            if (scalar @nameservers && scalar @emails) {
-                $resp = '';
-                foreach my $ns (@nameservers) {
-                    $resp .= "nserver:      $ns\n";
-                }
-                foreach my $email (@emails) {
-                    $resp .= "e-mail:       $email\n";
-                }
-            }
-        }
-
-    } elsif ($tld eq 'mu') {
-
-        return 0 unless
-        $resp =~ /(<p><b>Domain Name:<\/b><br>.+?)<hr width="75%">/s;
-        $resp = $1;
-        $ishtml = 1;
-
-    } elsif ($tld eq 'ru' || $tld eq 'su') {
-
-        $resp = _koi2win($resp);
-        (undef, $resp) = split('<script>.*?</script>',$resp);
-        ($resp) = split('</td></tr></table>', $resp);
-        $resp =~ s/&nbsp;/ /gi;
-        $resp =~ s/<([^>]|\n)*>//gi;
-
-        return 0 if ($resp=~ m/Доменное имя .*? не зарегистрировано/i);
-        $resp = 'ERROR' if $resp =~ m/Error:/i || $resp !~ m/Информация о домене .+? \(по данным WHOIS.RIPN.NET\):/;;
-        #TODO: errors
-    } elsif ($tld eq 'ip') {
-
-        unless ($resp =~ m|<p ID="whois">(.+?)</p>|s) {
-            return 0;
-        }
-
-        $resp = $1;
-        
-        $resp =~ s|<a.+?>||g;
-        $resp =~ s|</a>||g;
-        $resp =~ s|<br>||g;
-        $resp =~ s|&nbsp;| |g;
-
-    } elsif ($tld eq 'in') {
-
-        if ($resp =~ /Domain ID:\w{3,10}-\w{4}\n(.+?)\n\n/s) {
-            $resp = $1;
-            $resp =~ s/<br>//g;
-        } else {
-            return 0;
-        }
-
-    } elsif ($tld eq 'cn') {
-
-        if ($resp =~ m|<table border=1 cellspacing=0 cellpadding=2>\n\n(.+?)\n</table>|s) {
-            $resp = $1;
-            $resp =~ s|<a.+?>||isg;
-            $resp =~ s|</a>||isg;
-            $resp =~ s|<font.+?>||isg;
-            $resp =~ s|</font>||isg;
-            $resp =~ s|<tr><td class="t_blue">.+?</td><td class="t_blue">||isg;
-            $resp =~ s|</td></tr>||isg;
-            $resp =~ s|\n\s+|\n|sg;
-            $resp =~ s|\n\n|\n|sg;
-        } else {
-            return 0;
-        }
-
-    } elsif ($tld eq 'ws') {
-
-	if ($resp =~ /Whois information for .+?:(.+?)<table>/s) {
-	    $resp = $1;
-            $resp =~ s|<font.+?>||isg;
-            $resp =~ s|</font>||isg;
-
-            $ishtml = 1;
-	} else {
-	    return 0;
-	}
-
-    } elsif ($tld eq 'kz') {
-    
-	if ($resp =~ /Domain Name\.{10}/s && $resp =~ /<pre>(.+?)<\/pre>/s) {
-	    $resp = $1;
-	} else {
-	    return 0;
-	}
-    } elsif ($tld eq 'vn') {
-	if ($resp =~/#ENGLISH.*?<\/tr>(.+?)<\/table>/si) {
-	    $resp = $1;
-	    $resp =~ s|</?font.*?>||ig;
-	    $resp =~ s|&nbsp;||ig;
-	    $resp =~ s|<br>|\n|ig;
-	    $resp =~ s|<tr>\s*<td.*?>\s*(.*?)\s*</td>\s*<td.*?>\s*(.*?)\s*</td>\s*</tr>|$1 $2\n|isg;
-	    $resp =~ s|^\s*||mg;
-	} else {
-	    return 0;
-	};
-    } else {
-        return 0;
-    }
-    # above untached from Net::Whois::Raw
-    
-    return $resp;    
-}
-
-sub _koi2win($) {
-    my $val = $_[0];
-    $val =~ tr/бвчздецъйклмнопртуфхжигюыэшщяьасБВЧЗДЕЦЪЙКЛМНОПРТУФХЖИГЮЫЭЯЩШЬАСіЈ/А-яЁё/;
-    return $val;
 }
 
 sub get_from_cache {
@@ -976,13 +613,13 @@ sub clean_bans {
     #my (@my_local_ips) = @local_ips || ('localhost');
     foreach my $server (keys %servers_ban) {
         foreach my $ip (keys %{$servers_ban{$server}}) {
-            #print $POE::Component::Client::Whois::Smart::Data::ban_time{$server}."\n";
+            #print $Net::Whois::Raw::Data::ban_time{$server}."\n";
             delete $servers_ban{$server}->{$ip}
                 if time - $servers_ban{$server}->{$ip}
                     >=
                     (
-                        $POE::Component::Client::Whois::Smart::Data::ban_time{$server}
-                        || $POE::Component::Client::Whois::Smart::Data::default_ban_time
+                        $Net::Whois::Raw::Data::ban_time{$server}
+                        || $Net::Whois::Raw::Data::default_ban_time
                     )
                 ;
         }
@@ -999,8 +636,8 @@ sub unban_time {
     foreach my $ip (@my_local_ips) {
         my $ip_unban_time
             = (
-                $POE::Component::Client::Whois::Smart::Data::ban_time{$server}
-                || $POE::Component::Client::Whois::Smart::Data::default_ban_time
+                $Net::Whois::Raw::Data::ban_time{$server}
+                || $Net::Whois::Raw::Data::default_ban_time
               )
             - (time - $servers_ban{$server}->{$ip});
         $ip_unban_time = 0 if $ip_unban_time < 0;
