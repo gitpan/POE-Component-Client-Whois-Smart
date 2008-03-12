@@ -5,7 +5,7 @@ WriteMakefile
           'NAME' => 'POE::Component::Client::Whois::Smart',
           'VERSION_FROM' => 'lib/POE/Component/Client/Whois/Smart.pm',
           'PREREQ_PM' => {
-                           'Net::Whois::Raw' => '1.43',
+                           'Net::Whois::Raw' => '1.50',
                            'POE' => '0',
                            'POE::Component::Client::HTTP' => '0',
                            'POE::Filter::Line' => '0',

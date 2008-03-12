@@ -2,7 +2,7 @@ Build.PL
 Changes
 lib/POE/Component/Client/Whois/Smart.pm
 Makefile.PL
-MANIFEST
+MANIFEST			This list of files
 META.yml
 README
 t/01-test.t

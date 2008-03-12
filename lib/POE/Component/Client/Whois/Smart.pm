@@ -7,12 +7,14 @@ use POE qw(Filter::Line Wheel::ReadWrite Wheel::SocketFactory Component::Client:
 use HTTP::Request;
 use Net::Whois::Raw::Common;
 use Net::Whois::Raw::Data;
+use Storable;
 #use Data::Dumper;
 
-our $VERSION = '0.09';
+our $VERSION = '0.11';
 our $DEBUG;
 our @local_ips = ();
 our %servers_ban = ();
+our %POSTPROCESS;
 #our $rism_all; # = Request per Ip per Server per Minute =)
 
 # init whois query 
@@ -46,10 +48,9 @@ sub _start_manager {
     $heap->{params}->{cache_dir}   = $args{cache_dir};
     $heap->{params}->{cache_time}  = $args{cache_time} ||= 1;
     $heap->{params}->{omit_msg}
-        = defined $args{omit_msg} ? delete $args{omit_msg} : 0;
+        = defined $args{omit_msg} ? delete $args{omit_msg} : 2;
     $heap->{params}->{exceed_wait}
         = defined $args{exceed_wait} ? $args{exceed_wait} : 0;
-    
 
     $args{host}       = delete $args{server},
     $args{manager_id} = $session->ID();
@@ -63,7 +64,6 @@ sub _start_manager {
             && (join '', sort @local_ips) ne (join '', sort @{$args{local_ips}});
     
     delete $args{local_ips};
-
 
     my (@query_list) = @{$args{query}};
     delete $args{query};  
@@ -87,18 +87,18 @@ sub _query_done {
         $error = $response->{error};
     } elsif($response->{from_cache}) {
         $whois = $response->{whois};
-        #$heap->{tasks}--;
-    } elsif ($response->{host} eq "http") {
+        $heap->{result}->{$response->{original_query}} = delete $response->{cache};
+    } elsif ($response->{host} eq "www_whois") {
         $whois = $response->{whois};
         $error = $response->{error};
     } else {
         $whois = defined $response->{reply} ? join "\n", @{$response->{reply}} : "";
         delete $response->{reply};
-        ($whois, $error) = process_whois(
+        ($whois, $error) = Net::Whois::Raw::Common::process_whois(
             $response->{original_query},
             $response->{host},
             $whois,
-            $heap->{params}
+            2, $heap->{params}->{omit_msg}, 2,
         );
     }
     
@@ -123,7 +123,7 @@ sub _query_done {
     
     $heap->{tasks}--;
     
-    if (!$error || !$heap->{result}->{$response->{original_query}}) {
+    if (!$response->{from_cache} && ( !$error || !$heap->{result}->{$response->{original_query}} ) ) {
         my %result = (
             query      => $response->{query},
             server     => $response->{host},
@@ -140,7 +140,7 @@ sub _query_done {
             $result{server},
             $result{query},
             @{ $heap->{result}->{$response->{original_query}} },    
-        ) if $heap->{params}->{referral} && $response->{host} ne "http";
+        ) if $result{whois} && $response->{host} ne "www_whois";
         
         if ($new_server && !$result{from_cache}) {
             my %args = %$response;
@@ -159,15 +159,19 @@ sub _query_done {
     unless ($heap->{tasks}) {     
         my @result;
         foreach my $query (keys %{$heap->{result}}) {            
+            my $num = $heap->{params}->{referral} == 0 ? 0 : -1;
             my %res = (
-                query  => $heap->{result}->{$query}->[-1]->{query},
-                whois  => $heap->{result}->{$query}->[-1]->{whois},
-                server => $heap->{result}->{$query}->[-1]->{server},
-                error  => $heap->{result}->{$query}->[-1]->{error},                
+                query  => $query,
+                whois  => $heap->{result}->{$query}->[$num]->{whois},
+                server => $heap->{result}->{$query}->[$num]->{server},
+                error  => $heap->{result}->{$query}->[$num]->{error},                
             );
             
-            write_to_cache(%res, $heap->{params}->{cache_dir})
-                if $heap->{params}->{cache_dir} && !$res{from_cache};
+            Net::Whois::Raw::Common::write_to_cache(
+                $query,
+                $heap->{result}->{$query},
+                $heap->{params}->{cache_dir}
+            ) if $heap->{params}->{cache_dir} && !$res{from_cache};
             
             $res{subqueries} = $heap->{result}->{$query}
                 if $heap->{params}->{referral} == 2;
@@ -190,7 +194,7 @@ sub get_whois {
     $args{lc $_} = delete $args{$_} for keys %args;
 
     unless ( $args{host} ) {
-        my $whois_server = get_server($args{query}, $args{params}->{use_cnames});
+        my $whois_server = Net::Whois::Raw::Common::get_server($args{query}, $args{params}->{use_cnames});
         unless ( $whois_server ) {
             warn "Could not determine whois server from query string, defaulting to internic \n";
             $whois_server = 'whois.internic.net';
@@ -198,8 +202,8 @@ sub get_whois {
         $args{host} = $whois_server;
     }
 
-    $args{query_real} = get_real_whois_query($args{query}, $args{host})
-        unless ($args{host} eq "http");
+    $args{query_real} = Net::Whois::Raw::Common::get_real_whois_query($args{query}, $args{host})
+        unless ($args{host} eq "www_whois");
 
     my $self = bless { request => \%args }, $package;
 
@@ -222,25 +226,34 @@ sub _start {
     my ($kernel,$self) = @_[KERNEL,OBJECT];
     $self->{session_id} = $_[SESSION]->ID();
     
-    if ($self->{request}->{cache_dir} && $self->{request}->{referral} == 1) {
-        my ($whois, $server) = get_from_cache(
+    if ($self->{request}->{cache_dir}) {
+        my $result = Net::Whois::Raw::Common::get_from_cache(
             $self->{request}->{query},
             $self->{request}->{cache_dir},
             $self->{request}->{cache_time},            
         );
-        if ($whois) {            
+        if ($result) {            
             my $request = delete $self->{request};
             my $session = delete $request->{manager_id};
             
-            $request->{whois}      = $whois;
-            $request->{host}       = $server;
+            #$request->{whois}      = $whois;
+            #$request->{host}       = $server;
+            
+            my $res;
+            foreach (@{$result}) {
+                $_->{server} = delete $_->{srv};
+                $_->{whois} = delete $_->{text};
+                push @{$res}, $_;
+            }
+            
+            $request->{cache}       = $res;
             $request->{from_cache} = 1;
             $kernel->post( $session => $request->{event} => $request );
             return undef;
         }
     }
     
-    if ($self->{request}->{host} eq "http") {
+    if ($self->{request}->{host} eq "www_whois") {
         $kernel->yield( '_connect_http' );
     } else {
         $kernel->yield( '_connect' );
@@ -300,8 +313,8 @@ sub _connect_http {
         Timeout => $self->{request}->{timeout},
     );
     
-    my ($url, %form) = get_http_query_url($self->{request}->{query});
-    my ($name, $tld) = split_domain($self->{request}->{query});
+    my ($url, %form) = Net::Whois::Raw::Common::get_http_query_url($self->{request}->{query});
+    my ($name, $tld) = Net::Whois::Raw::Common::split_domain($self->{request}->{query});
     
     $self->{request}->{tld} = $tld;
     my $referer = delete $form{referer} if %form && $form{referer};
@@ -334,7 +347,7 @@ sub _http_down {
     my $content  = $response->content();
     
     $self->{request}->{whois}
-        = parse_www_content($content, $self->{request}->{tld});
+        = Net::Whois::Raw::Common::parse_www_content($content, $self->{request}->{tld});
     
     my $request = delete $self->{request};
     my $session = delete $request->{manager_id};
@@ -457,13 +470,13 @@ sub get_recursion {
 	} elsif (/Contact information can be found in the (\S+)\s+database/) {
 	    $new_server = $Net::Whois::Raw::Data::ip_whois_servers{ $1 };
             #last;
-    	} elsif ((/OrgID:\s+(\w+)/ || /descr:\s+(\w+)/) && is_ipaddr($query)) {
+    	} elsif ((/OrgID:\s+(\w+)/ || /descr:\s+(\w+)/) && Net::Whois::Raw::Common::is_ipaddr($query)) {
 	    my $value = $1;	
 	    if($value =~ /^(?:RIPE|APNIC|KRNIC|LACNIC)$/) {
 		$new_server = $Net::Whois::Raw::Data::ip_whois_servers{$value};
 		last;
 	    }
-    	} elsif (/^\s+Maintainer:\s+RIPE\b/ && is_ipaddr($query)) {
+    	} elsif (/^\s+Maintainer:\s+RIPE\b/ && Net::Whois::Raw::Common::is_ipaddr($query)) {
             $new_server = $Net::Whois::Raw::Data::servers{RIPE};
             last;
 	}
@@ -477,92 +490,6 @@ sub get_recursion {
     }
     
     return $new_server, $new_query;
-}
-
-# chech if Connection rate exceeded, if whois info found, strip copyrights
-sub process_whois {
-    my ($query, $server, $whois, $params) = @_;
-
-    if (!is_ipaddr($query) && !is_ip6addr($query)) {
-        $server = lc $server;
-        my ($name, $tld) = split_domain($query);
-    
-        if ($tld eq 'mu') {
-            if ($whois =~ /.MU Domain Information\n(.+?\n)\n/s) {
-                $whois = $1;
-            }
-        }
-    
-        my $exceed = $Net::Whois::Raw::Data::exceed{$server};
-        if ($exceed && $whois =~ /$exceed/s) {
-            return $whois, "Connection rate exceeded";
-        }
-    
-        my %notfound = %Net::Whois::Raw::Data::notfound;
-        my %strip = %Net::Whois::Raw::Data::strip;
-    
-        my $notfound = $notfound{$server};
-        my @strip = $strip{$server} ? @{$strip{$server}} : ();
-        my @lines;
-        MAIN: foreach (split(/\n/, $whois)) {
-            if ($notfound && /$notfound/) {
-                return $whois, "Not found";
-            };
-            if ($params->{omit_msg}) {
-                foreach my $re (@strip) {
-                    next MAIN if (/$re/);
-                }
-            }
-            push(@lines, $_);
-        }
-    
-        $whois = join("\n", @lines, "");
-        $whois = strip_whois($whois) if $params->{omit_msg} > 1;
-    
-        return $whois, "Not found" unless check_existance($whois);
-    }
-    
-    return $whois, undef;
-}
-
-sub get_from_cache {
-    my ($query, $cache_dir, $cache_time) = @_;
-
-    return undef unless $cache_dir;
-
-    mkdir $cache_dir, 0755 unless -d $cache_dir;
-    
-    my $now = time;
-    # clear the cache
-    foreach (glob("$cache_dir/*")) {
-        my $mtime = (stat($_))[8] or next;
-        my $elapsed = $now - $mtime;
-        unlink $_ if ($elapsed / 60 > $cache_time);
-    }
-    
-    if (-f "$cache_dir/$query") {
-        if (open(CACHE, "$cache_dir/$query")) {
-            my $server = <CACHE>;
-            chomp $server;
-            my $whois = join("", <CACHE>);
-            close(CACHE);
-            return $whois, $server;
-        }
-    }
-}
-
-sub write_to_cache {
-    my $cache_dir = pop;
-    my %result = @_;
-
-    return unless $cache_dir && $result{query} && $result{whois};
-    mkdir $cache_dir, 0755 unless -d $cache_dir;
-
-    if (open(CACHE, ">$cache_dir/".$result{query})) {
-        print CACHE $result{server}."\n";
-        print CACHE $result{whois};
-        close(CACHE);
-    }
 }
 
 sub next_local_ip {
@@ -779,11 +706,13 @@ Exapmle:
 
 =item omit_msg
 
+0 - give the whole response.
+
 1 - attempt to strip several known copyright messages and disclaimers.
 
 2 - will try some additional stripping rules if some are known for the spcific server.
 
-Default is to give the whole response.
+Default is 2;
 
 =item use_cnames
 

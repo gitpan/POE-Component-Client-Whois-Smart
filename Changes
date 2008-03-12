@@ -12,3 +12,9 @@ Revision history for POE::Component::Client::Whois::Smart
 
 0.09	Feb 29 2008
 	- Uses Net::Whois::Raw::Data and Net::Whois::Raw::Common 
+
+0.10	Mar 04 2008
+	- Improved cache mechanism
+
+0.11    Mar 12 2008
+        - Uses Net::Whois::Raw::Data and Net::Whois::Raw::Common internaly
