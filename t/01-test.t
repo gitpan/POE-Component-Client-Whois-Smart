@@ -18,7 +18,11 @@ my @domains_not_reg = qw(
     thereisnosuchdomain453.ru
 );
 
-my @ips = qw( 87.242.73.95 );
+my @ips = qw(
+    87.242.73.95
+    202.75.38.179
+    207.173.0.0
+);
 
 my @registrars = ('REGRU-REG-RIPN');
 my $server  = 'whois.ripn.net',

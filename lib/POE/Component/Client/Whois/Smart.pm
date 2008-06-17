@@ -10,7 +10,7 @@ use Net::Whois::Raw::Data;
 use Storable;
 #use Data::Dumper;
 
-our $VERSION = '0.11';
+our $VERSION = '0.12';
 our $DEBUG;
 our @local_ips = ();
 our %servers_ban = ();
@@ -98,7 +98,9 @@ sub _query_done {
             $response->{original_query},
             $response->{host},
             $whois,
-            2, $heap->{params}->{omit_msg}, 2,
+            1, # remove addition whois data verification
+            $heap->{params}->{omit_msg},
+            2,
         );
     }
     
@@ -142,7 +144,8 @@ sub _query_done {
             @{ $heap->{result}->{$response->{original_query}} },    
         ) if $result{whois} && $response->{host} ne "www_whois";
         
-        if ($new_server && !$result{from_cache}) {
+        if (	$heap->{params}->{referral} # NOT AN QRY_FIRST
+	    &&	( $new_server && ! $result{from_cache} ) ) {
             my %args = %$response;
             delete $args{reply};
             
@@ -384,7 +387,7 @@ sub _sock_up {
     $self->{'socket'} = new POE::Wheel::ReadWrite(
         Handle     => $socket,
         Driver     => POE::Driver::SysRW->new(),
-        Filter     => POE::Filter::Line->new( InputRegexp => '\015?\012',
+        Filter     => POE::Filter::Line->new( InputRegexp => "(\x0D\x0A?|\x0A\x0D?)",
                                             OutputLiteral => "\015\012" ),
         InputEvent => '_sock_input',
         ErrorEvent => '_sock_down',
@@ -407,7 +410,11 @@ sub _sock_up {
 
 # connection with socket finished, post result to manager
 sub _sock_down {
-    my ($kernel,$self) = @_[KERNEL,OBJECT];
+    my ( $kernel, $self ) = @_[ KERNEL, OBJECT ];
+    if ( $self->{socket} && $self->{socket}->[2] && $self->{socket}->[2]->[0] ) {
+        push @{ $self->{request}->{reply} }, $self->{socket}->[2]->[0];
+    }
+    
     delete $self->{socket};
     $kernel->delay( '_time_out' => undef );
 
@@ -463,7 +470,7 @@ sub get_recursion {
             $new_server = $server;
             $new_query  = "=$query";
             last;
-	} elsif (/ReferralServer: whois:\/\/([-.\w]+)/) {
+	} elsif (/ReferralServer: r?whois:\/\/([-.\w]+)/) {
 	    #warn "SEX!!!!\n";
 	    $new_server = $1;
 	    last;
@@ -752,6 +759,8 @@ Sergey Kotenko <graykot@gmail.com>
 
 This module is based on the Net::Whois::Raw L<http://search.cpan.org/perldoc?Net::Whois::Raw>
 and POE::Component::Client::Whois L<http://search.cpan.org/perldoc?POE::Component::Client::Whois>
+
+Some corrects by Odintsov Pavel E<lt>nrg[at]cpan.orgE<gt>
 
 =head1 SEE ALSO
 

@@ -18,3 +18,10 @@ Revision history for POE::Component::Client::Whois::Smart
 
 0.11    Mar 12 2008
         - Uses Net::Whois::Raw::Data and Net::Whois::Raw::Common internaly
+        
+0.12    Jun 17 2008
+        - Fixed retrieving whois from servers with non-unix newlines
+        - Added ability to handle server answer with "ReferralServer: rwhois" links
+        - Disabled additional checks response from the unknown whois servers (now $ Net:: Whois:: Raw:: CHECK_FAIL == 1),
+          in relation to rejecting the erroneous answers containing fields simultaneously "ReferralServer" and "Not found"
+
