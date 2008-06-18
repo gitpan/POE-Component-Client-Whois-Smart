@@ -10,7 +10,7 @@ use Net::Whois::Raw::Data;
 use Storable;
 #use Data::Dumper;
 
-our $VERSION = '0.12';
+our $VERSION = '0.12_01';
 our $DEBUG;
 our @local_ips = ();
 our %servers_ban = ();
@@ -470,7 +470,7 @@ sub get_recursion {
             $new_server = $server;
             $new_query  = "=$query";
             last;
-	} elsif (/ReferralServer: r?whois:\/\/([-.\w]+)/) {
+	} elsif (/ReferralServer: whois:\/\/([-.\w]+)/) {
 	    #warn "SEX!!!!\n";
 	    $new_server = $1;
 	    last;
