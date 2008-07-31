@@ -2,6 +2,7 @@ package POE::Component::Client::Whois::Smart;
 
 use strict;
 use warnings;
+
 use Socket;
 use POE qw(Filter::Line Wheel::ReadWrite Wheel::SocketFactory Component::Client::HTTP);
 use HTTP::Request;
@@ -10,7 +11,7 @@ use Net::Whois::Raw::Data;
 use Storable;
 #use Data::Dumper;
 
-our $VERSION = '0.12_01';
+our $VERSION = '0.13';
 our $DEBUG;
 our @local_ips = ();
 our %servers_ban = ();
@@ -90,7 +91,16 @@ sub _query_done {
         $heap->{result}->{$response->{original_query}} = delete $response->{cache};
     } elsif ($response->{host} eq "www_whois") {
         $whois = $response->{whois};
-        $error = $response->{error};
+        #$error = $response->{error};
+
+        ($whois, $error) = Net::Whois::Raw::Common::process_whois(
+            $response->{original_query},
+            'www_whois',
+            $whois,
+            1,
+            $heap->{params}->{omit_msg},
+            2,
+        );
     } else {
         $whois = defined $response->{reply} ? join "\n", @{$response->{reply}} : "";
         delete $response->{reply};
@@ -98,12 +108,18 @@ sub _query_done {
             $response->{original_query},
             $response->{host},
             $whois,
-            1, # remove addition whois data verification
+            1,
             $heap->{params}->{omit_msg},
             2,
         );
-    }
-    
+        
+        if (!Net::Whois::Raw::Common::check_existance($whois) && $whois !~ /ReferralServer: whois/i ) {
+            $error = "Not found";
+            $whois = '';
+        } else {
+            #$error = '';
+        }
+    } 
     # exceed
     if ($error && $error eq 'Connection rate exceeded') {
         my $current_ip = $response->{local_ip} || 'localhost';
@@ -124,7 +140,7 @@ sub _query_done {
     }
     
     $heap->{tasks}--;
-    
+
     if (!$response->{from_cache} && ( !$error || !$heap->{result}->{$response->{original_query}} ) ) {
         my %result = (
             query      => $response->{query},
@@ -328,6 +344,9 @@ sub _connect_http {
     my $req = new HTTP::Request $method, $url, $header;
 
     if ($method eq 'POST') {
+        require URI::URL;
+        import URI::URL;
+
         my $curl = url("http:");
         $req->content_type('application/x-www-form-urlencoded');
         $curl->query_form(%form);

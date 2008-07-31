@@ -1,5 +1,8 @@
-#!/usr/bin/perl -w
+#!/usr/bin/perl
+
 use strict;
+use warnings;
+
 use Test::More;
 use POE;
 #use Data::Dumper;
@@ -16,12 +19,13 @@ my @domains = qw(
 my @domains_not_reg = qw(
     thereisnosuchdomain123.com
     thereisnosuchdomain453.ru
+    suxx.vn
 );
 
 my @ips = qw(
-    87.242.73.95
     202.75.38.179
     207.173.0.0
+    87.242.73.95
 );
 
 my @registrars = ('REGRU-REG-RIPN');
@@ -98,6 +102,7 @@ sub _response_registrar {
 sub _response_not_reg {
     my $full_result = $_[ARG0];
     foreach my $result ( @{$full_result} ) {
+
         ok( $result && $result->{error},
             "whois for domain (not reged) ".$result->{query} );
     }                            
