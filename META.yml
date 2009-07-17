@@ -1,20 +1,27 @@
---- #YAML:1.0
-name:                POE-Component-Client-Whois-Smart
-version:             0.13
-abstract:            ~
-license:             ~
-author:              ~
-generated_by:        ExtUtils::MakeMaker version 6.44
-distribution_type:   module
-requires:     
-    HTTP::Request:                 0
-    Net::Whois::Raw:               1.56
-    POE:                           0
-    POE::Component::Client::HTTP:  0
-    POE::Filter::Line:             0
-    POE::Wheel::ReadWrite:         0
-    POE::Wheel::SocketFactory:     0
-    URI::URL:                      0
+---
+name: POE-Component-Client-Whois-Smart
+version: 0.16
+author: []
+abstract: Provides very quick WHOIS queries with smart features.
+license: perl
+resources:
+  license: http://dev.perl.org/licenses/
+requires:
+  HTTP::Request: 0
+  Hash::MoreUtils: 0
+  Net::Whois::Raw: 1.56
+  POE: 0
+  POE::Component::Client::HTTP: 0
+  POE::Filter::Line: 0
+  POE::Wheel::ReadWrite: 0
+  POE::Wheel::SocketFactory: 0
+  SOAP::DirectI: 0
+  URI::URL: 0
+provides:
+  POE::Component::Client::Whois::Smart:
+    file: lib/POE/Component/Client/Whois/Smart.pm
+    version: 0.16
+generated_by: Module::Build version 0.3
 meta-spec:
-    url:     http://module-build.sourceforge.net/META-spec-v1.3.html
-    version: 1.3
+  url: http://module-build.sourceforge.net/META-spec-v1.2.html
+  version: 1.2
