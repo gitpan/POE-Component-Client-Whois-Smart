@@ -19,7 +19,7 @@ use utf8;
 use Module::Pluggable::Ordered search_path => 'POE::Component::Client::Whois::Smart';
 use UNIVERSAL::require;
 
-our $VERSION = '0.17';
+our $VERSION = '0.18';
 our $DEBUG;
 
 our @local_ips = ();
@@ -88,7 +88,7 @@ sub _start_manager {
 	    $plugin->can('plugin_params') ? $plugin->plugin_params() : ();
 	
 	foreach (keys %plugin_params) {
-	    $params{$_} = delete($args{$_}) || $plugin_params{$_};
+	    $params{$_} ||= delete($args{$_}) || $plugin_params{$_};
 	    defined $params{$_} or delete $params{$_};
 	}
     }
