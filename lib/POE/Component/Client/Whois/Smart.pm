@@ -14,19 +14,20 @@ use CLASS;
 
 use Data::Dumper;
 
+use utf8;
+
 use Module::Pluggable::Ordered search_path => 'POE::Component::Client::Whois::Smart';
 use UNIVERSAL::require;
 
-our $VERSION = '0.16';
+our $VERSION = '0.17';
 our $DEBUG;
 
-#our $rism_all; # = Request per Ip per Server per Minute =)
-
 our @local_ips = ();
+our $local_ip_index;
 our %servers_ban = ();
 
-my $plugins_initialized;
 
+my $plugins_initialized;
 
 # init whois query 
 sub whois {
@@ -45,6 +46,12 @@ sub whois {
 
 		$init && $init->($poe_kernel, \%args)
 		    or die "Cannot initialize plugin $plugin: $@";
+		
+		if ( $DEBUG ) {
+		    no strict 'refs';
+		    no warnings 'redefine';
+		    *{$plugin.'::DEBUG'} = sub { $DEBUG };
+		}
 	    };
 
 	    warn $@ if $@;
@@ -67,40 +74,44 @@ sub whois {
     undef;
 }
 
-sub local_ips {
-    @local_ips = @_ if @_;
-    @local_ips;
-}
-
 # start manager, which manages all process and returns result to caller 
 sub _start_manager {
     my ($heap, $session, $arg_ref) = @_[HEAP, SESSION, ARG0];
     my %args = %$arg_ref;
 
-    $heap->{params}->{parent_session_id}  = delete($args{session})->ID();
-    $heap->{params}->{use_cnames}  = delete $args{use_cnames};
-    $heap->{params}->{cache_dir}   = $args{cache_dir};
-    $heap->{params}->{cache_time}  = $args{cache_time} ||= 1;
-    $heap->{params}->{omit_msg}
-	= defined $args{omit_msg} ? delete $args{omit_msg} : 2;
-    $heap->{params}->{exceed_wait}
-	= defined $args{exceed_wait} ? $args{exceed_wait} : 0;
-    
+    my %params;
+
+    $params{parent_session_id} = delete($args{session})->ID();
+
+    foreach my $plugin ( CLASS->plugins ) {
+	my %plugin_params = 
+	    $plugin->can('plugin_params') ? $plugin->plugin_params() : ();
+	
+	foreach (keys %plugin_params) {
+	    $params{$_} = delete($args{$_}) || $plugin_params{$_};
+	    defined $params{$_} or delete $params{$_};
+	}
+    }
+
+    $params{event}  = delete $args{event};
+
+    $heap->{params} = \%params;
+
     $args{referral} = 1 unless defined $args{referral};
-    $heap->{params}->{referral}    = $args{referral};
-    $heap->{params}->{event}       = delete $args{event};
+
 
     $args{host}       = delete $args{server},
     $args{manager_id} = $session->ID();
     $args{event}      = "_query_done";
     $args{timeout}    = $args{timeout} || 30;
     
-    $heap->{tasks} = 0;
-    $args{result}  = $heap->{result} = {};
+    $heap->{tasks}  = 0;
+    $heap->{result} = {};
     
-    @local_ips = @{$args{local_ips}}
-        if $args{local_ips}
-            && (join '', sort @local_ips) ne (join '', sort @{$args{local_ips}});
+    if ( $args{local_ips} && "@{ $args{local_ips} }" ne "@local_ips" ) {
+	@local_ips = @{$args{local_ips}} if $args{local_ips};
+	$local_ip_index = 0;
+    }
     
     delete $args{local_ips};
 
@@ -159,11 +170,23 @@ sub check_if_done {
 sub _query_done {
     my ($kernel, $heap, $session, $response) = @_[KERNEL, HEAP, SESSION, ARG0];
 
+    #warn "$response->{query} done...\n";
+
     $heap->{tasks}--;
     return CLASS->check_if_done( $kernel, $heap );
 }
 
 sub next_local_ip {
+    @local_ips or return 'default';
+    $local_ip_index = ++$local_ip_index % @local_ips;
+    return $local_ips[ $local_ip_index ];
+}
+
+sub local_ips {
+    return @local_ips;
+}
+
+sub __next_local_ip {
     my ($server, $clientname, $rism) = @_;
     clean_bans();
     
@@ -210,7 +233,7 @@ sub unban_time {
                 $Net::Whois::Raw::Data::ban_time{$server}
                 || $Net::Whois::Raw::Data::default_ban_time
               )
-            - (time - $servers_ban{$server}->{$ip});
+            - (time - ($servers_ban{$server}->{$ip}||0) );
         $ip_unban_time = 0 if $ip_unban_time < 0;
         $unban_time = $ip_unban_time
             if !defined $unban_time || $unban_time > $ip_unban_time; 

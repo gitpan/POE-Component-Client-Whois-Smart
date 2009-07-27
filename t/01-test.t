@@ -114,7 +114,7 @@ sub _response {
         my $query = $result->{query} if $result;
         $query =~ s/.NS$//i;
 
-	#warn $result->{whois} if $query =~ m/perl.com/;
+	#warn Dumper $result if $query =~ m/freshmeat/;
 
         ok( $result && !$result->{error} && $result->{whois} =~ /$query/i,
             "whois for domain ".$result->{query}." from ".$result->{server} );

@@ -7,9 +7,11 @@ WriteMakefile
           'PREREQ_PM' => {
                            'HTTP::Request' => 0,
                            'Hash::MoreUtils' => 0,
+                           'Module::Pluggable::Ordered' => 0,
                            'Net::Whois::Raw' => '1.56',
                            'POE' => 0,
                            'POE::Component::Client::HTTP' => 0,
+                           'POE::Component::SSLify' => 0,
                            'POE::Filter::Line' => 0,
                            'POE::Wheel::ReadWrite' => 0,
                            'POE::Wheel::SocketFactory' => 0,
