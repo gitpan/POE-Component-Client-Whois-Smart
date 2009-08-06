@@ -17,7 +17,9 @@ my $build = Module::Build->new(
 	'POE::Wheel::SocketFactory'     => 0,
 	'POE::Component::Client::HTTP'  => 0,
 	'POE::Component::SSLify'  => 0,
-	'Net::Whois::Raw'               => '1.56',
+	'Net::Whois::Raw'   => '1.56',
+	'CLASS'		    => 0,
+	'Tie::Cache::LRU'   => 0,
     },
     create_makefile_pl => 'traditional',
 );

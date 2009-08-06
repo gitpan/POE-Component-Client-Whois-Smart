@@ -19,7 +19,7 @@ use utf8;
 use Module::Pluggable::Ordered search_path => 'POE::Component::Client::Whois::Smart';
 use UNIVERSAL::require;
 
-our $VERSION = '0.18';
+our $VERSION = '0.182';
 our $DEBUG;
 
 our @local_ips = ();
@@ -88,7 +88,10 @@ sub _start_manager {
 	    $plugin->can('plugin_params') ? $plugin->plugin_params() : ();
 	
 	foreach (keys %plugin_params) {
-	    $params{$_} ||= delete($args{$_}) || $plugin_params{$_};
+            if (not exists $params{$_}) {
+                $params{$_} = exists $args{$_}  ? 
+                              delete($args{$_}) : $plugin_params{$_};
+            }
 	    defined $params{$_} or delete $params{$_};
 	}
     }
@@ -96,9 +99,6 @@ sub _start_manager {
     $params{event}  = delete $args{event};
 
     $heap->{params} = \%params;
-
-    $args{referral} = 1 unless defined $args{referral};
-
 
     $args{host}       = delete $args{server},
     $args{manager_id} = $session->ID();

@@ -203,7 +203,17 @@ sub _start {
 	return;
     }
 
-    my $request = _get_directi_request_body( $self, \@names, \@tlds );
+    my $request = eval { _get_directi_request_body( $self, \@names, \@tlds ) };
+
+    if ( ! $request && $@ ) { 
+	my $request = delete $self->{request};
+	my $session = $request->{manager_id };
+
+
+	$self->_response( { domains => $self->{domains}, error => $@ });
+	$kernel->post( $session => $request->{event} );
+	return;
+    }
 
     #warn $request;
 

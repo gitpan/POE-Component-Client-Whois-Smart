@@ -42,7 +42,7 @@ my $server  = 'whois.ripn.net',
 my $directi_requests_send;
 
 # start test
-plan tests => @domains + 2*@domains_directi + @domains_not_reg + @ips + @registrars + 1;
+plan tests => @domains + 2*@domains_directi + @domains_not_reg + @ips + @registrars + 1 + 2;
 
 use_ok('POE::Component::Client::Whois::Smart');
 print "The following tests requires internet connection...\n";
@@ -53,6 +53,8 @@ POE::Session->create(
                     qw(
                         _start
                         _response
+                        _response_no_referral
+                        _response_referral
                         _response_directi
                         _response_not_reg
                         _response_ip
@@ -66,7 +68,7 @@ $poe_kernel->run();
 
 sub _start {
     my ($kernel,$heap) = @_[KERNEL,HEAP]; 
-    if ( 1 ) {
+
     POE::Component::Client::Whois::Smart->whois(
         query => \@domains,
         event => '_response',
@@ -75,18 +77,29 @@ sub _start {
     );
 
     POE::Component::Client::Whois::Smart->whois(
+        query => [ qw/freshmeat.net/ ],
+        event => '_response_no_referral',
+	referral => 0,
+	cache_dir => '/tmp/whois-gateway'
+    );
+
+    POE::Component::Client::Whois::Smart->whois(
+        query => [ qw/freshmeat.net/ ],
+        event => '_response_referral',
+	cache_dir => '/tmp/whois-gateway'
+    );
+
+    POE::Component::Client::Whois::Smart->whois(
         query  => \@registrars,
         server => $server, 
         event  => '_response_registrar',
     );
-    }
 
     POE::Component::Client::Whois::Smart->whois(
         query  => \@domains_not_reg,
         event  => '_response_not_reg',
     );
     
-    if ( 1 ) {
     POE::Component::Client::Whois::Smart->whois(
         query  => \@ips,
         event  => '_response_ip',
@@ -104,8 +117,6 @@ sub _start {
 	    url		     => 'http://api.onlyfordemo.net/anacreon/servlet/APIv3',
 	},
     );
-
-    }
 }
 
 sub _response {
@@ -120,6 +131,26 @@ sub _response {
             "whois for domain ".$result->{query}." from ".$result->{server} );
     }                            
 
+}
+
+sub _response_no_referral {
+    my $result = $_[ARG0]->[0];
+
+    my $query = $result->{query} if $result;
+
+    ok( $result && !$result->{error} && $result->{whois} =~ /Whois Server:/,
+	"non-referral whois for domain ".$result->{query}." from ".$result->{server} );
+}
+
+sub _response_referral {
+    my $result = $_[ARG0]->[0];
+
+    my $query = $result->{query} if $result;
+
+    ok(	    $result && !$result->{error} 
+	&&  $result->{whois} !~ /Whois Server:/i
+	&&  $result->{whois} =~ /Registrar Domain Name Help Center:/i,
+	"referral whois for domain ".$result->{query}." from ".$result->{server} );
 }
 
 sub _response_directi {
