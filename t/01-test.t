@@ -77,15 +77,16 @@ sub _start {
     );
 
     POE::Component::Client::Whois::Smart->whois(
-        query => [ qw/freshmeat.net/ ],
+        query => [ qw/moskva.com/ ],
         event => '_response_no_referral',
 	referral => 0,
 	cache_dir => '/tmp/whois-gateway'
     );
 
     POE::Component::Client::Whois::Smart->whois(
-        query => [ qw/freshmeat.net/ ],
+        query => [ qw/moskva.com/ ],
         event => '_response_referral',
+        referral => 1,
 	cache_dir => '/tmp/whois-gateway'
     );
 
@@ -125,8 +126,6 @@ sub _response {
         my $query = $result->{query} if $result;
         $query =~ s/.NS$//i;
 
-	#warn Dumper $result if $query =~ m/freshmeat/;
-
         ok( $result && !$result->{error} && $result->{whois} =~ /$query/i,
             "whois for domain ".$result->{query}." from ".$result->{server} );
     }                            
@@ -138,6 +137,8 @@ sub _response_no_referral {
 
     my $query = $result->{query} if $result;
 
+#warn Dumper $result;
+
     ok( $result && !$result->{error} && $result->{whois} =~ /Whois Server:/,
 	"non-referral whois for domain ".$result->{query}." from ".$result->{server} );
 }
@@ -147,9 +148,11 @@ sub _response_referral {
 
     my $query = $result->{query} if $result;
 
+#warn Dumper $result;
+
     ok(	    $result && !$result->{error} 
 	&&  $result->{whois} !~ /Whois Server:/i
-	&&  $result->{whois} =~ /Registrar Domain Name Help Center:/i,
+	&&  $result->{whois} =~ /Registrant Contact:/i,
 	"referral whois for domain ".$result->{query}." from ".$result->{server} );
 }
 

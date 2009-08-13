@@ -19,7 +19,7 @@ use utf8;
 use Module::Pluggable::Ordered search_path => 'POE::Component::Client::Whois::Smart';
 use UNIVERSAL::require;
 
-our $VERSION = '0.182';
+our $VERSION = '0.183';
 our $DEBUG;
 
 our @local_ips = ();

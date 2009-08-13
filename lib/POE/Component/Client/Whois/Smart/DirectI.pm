@@ -35,7 +35,7 @@ use POE qw/Component::Client::HTTP/;
 sub initialize {
     POE::Component::Client::HTTP->spawn(
 	Alias => 'ua_directi',
-	Timeout => 20, #$self->{request}->{timeout},
+	Timeout => 5, #$self->{request}->{timeout},
     );
 
     return 1;
@@ -226,7 +226,12 @@ sub _start {
 
     #warn $request;
 
-    #$kernel->alias_resolve('ua_directi')->[OBJECT]{factory}->timeout( 10 );
+    #warn Dumper $self->{request};
+
+    #$kernel->alias_resolve('ua_directi')->[OBJECT]{factory}->timeout(
+        #5,
+        #$self->{request}->{timeout}
+    #);
     $kernel->post("ua_directi", "request", "_done", $req);
 }
 
