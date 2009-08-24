@@ -32,10 +32,12 @@ tie my %directi_cache, 'Tie::Cache::LRU', 200;
 
 use POE qw/Component::Client::HTTP/;
 
+sub DEBUG { 1 }
+
 sub initialize {
     POE::Component::Client::HTTP->spawn(
 	Alias => 'ua_directi',
-	Timeout => 5, #$self->{request}->{timeout},
+	Timeout => 20, #$self->{request}->{timeout},
     );
 
     return 1;
@@ -67,6 +69,8 @@ sub query {
 
     if ( @my_queries ) {
 	++$heap->{tasks};
+        print "Query ".join(', ',@my_queries)." from DirectI\n" if DEBUG;
+
 	$class->get_whois_directi(
 	    \@my_queries, $heap, $args_ref,
 	);
@@ -238,6 +242,7 @@ sub _start {
 sub _done {
     my ($kernel, $heap, $self, $request_packet, $response_packet)
 	= @_[KERNEL, HEAP, OBJECT, ARG0, ARG1];
+
 
     # response obj
     my $http_response = $response_packet->[0];    

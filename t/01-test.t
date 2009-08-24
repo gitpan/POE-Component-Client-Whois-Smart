@@ -30,6 +30,10 @@ my @domains_not_reg = qw(
     suxx.vn
 );
 
+my @domains_incorrect = qw/
+    href=www.asdfzxcb.html>
+/;
+
 my @ips = qw(
     202.75.38.179
     207.173.0.0
@@ -42,7 +46,7 @@ my $server  = 'whois.ripn.net',
 my $directi_requests_send;
 
 # start test
-plan tests => @domains + 2*@domains_directi + @domains_not_reg + @ips + @registrars + 1 + 2;
+plan tests => @domains + 2*@domains_directi + @domains_not_reg + @ips + @registrars + @domains_incorrect + 1 + 2;
 
 use_ok('POE::Component::Client::Whois::Smart');
 print "The following tests requires internet connection...\n";
@@ -59,6 +63,7 @@ POE::Session->create(
                         _response_not_reg
                         _response_ip
                         _response_registrar
+			_response_domains_incorrect
                     )
         ],
     ],
@@ -107,6 +112,11 @@ sub _start {
     );
 
     POE::Component::Client::Whois::Smart->whois(
+        query  => \@domains_incorrect,
+        event  => '_response_domains_incorrect',
+    );
+
+    POE::Component::Client::Whois::Smart->whois(
         query  => \@domains_directi,
         event  => '_response_directi',
 	directi_params => {
@@ -115,7 +125,7 @@ sub _start {
 	    service_langpref => 'en',
 	    service_role     => 'reseller',
 	    service_parentid => '999999998',
-	    url		     => 'http://api.onlyfordemo.net/anacreon/servlet/APIv3',
+	    url		     => 'https://api.onlyfordemo.net/anacreon/servlet/APIv3',
 	},
     );
 }
@@ -189,7 +199,7 @@ sub _response_directi {
 		service_langpref => 'en',
 		service_role     => 'reseller',
 		service_parentid => '999999998',
-		url		     => 'http://api.onlyfordemo.net/anacreon/servlet/APIv3',
+		url		     => 'https://api.onlyfordemo.net/anacreon/servlet/APIv3',
 	    },
 	);
     }
@@ -211,6 +221,8 @@ sub _response_not_reg {
     my $full_result = $_[ARG0];
     foreach my $result ( @{$full_result} ) {
 
+	#warn Dumper $result;
+
         ok( $result && $result->{error},
             "whois for domain (not reged) ".$result->{query} );
     }                            
@@ -221,6 +233,17 @@ sub _response_ip {
     foreach my $result ( @{$full_result} ) {
         ok( $result && !$result->{error} && $result->{whois},
             "whois for IP ".$result->{query}." from ".$result->{server} );
+    }                            
+}
+
+sub _response_domains_incorrect {
+    my $full_result = $_[ARG0];
+#    warn Dumper $full_result;
+
+    foreach my $result ( @{$full_result} ) {
+        ok(	$result && $result->{error}
+	    &&	$result->{error} =~ m/^host resolve.*failed/,
+            "host resolve for ".$result->{query}." from ".$result->{server} );
     }                            
 }
 

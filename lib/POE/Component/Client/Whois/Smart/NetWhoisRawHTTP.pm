@@ -50,7 +50,6 @@ sub initialize {
 	Alias => 'ua',
 	Timeout => 10,
     );
-
     return 1;
 }
 

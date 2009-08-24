@@ -20,7 +20,8 @@ package POE::Component::Client::Whois::Smart::NetWhoisRaw;
 use strict;
 use warnings;
 
-use POE qw(Filter::Stream Wheel::ReadWrite Wheel::SocketFactory);
+use POE qw(Filter::Stream Wheel::ReadWrite Wheel::SocketFactory
+	   Component::Client::DNS);
 use Socket;
 use HTTP::Request;
 
@@ -31,13 +32,19 @@ use Hash::MoreUtils qw/slice/;
 
 use Data::Dumper;
 
-
 use POE::Component::Client::Whois::Smart; # for utility functions
 use Net::Whois::Raw::Common;
 
 sub DEBUG { 1 }
 
+our $named;
+
 sub initialize {
+    $named = POE::Component::Client::DNS->spawn(
+	Alias   => 'named',
+	Timeout => 10,
+    );
+
     1;
 }
 
@@ -130,7 +137,8 @@ sub get_whois {
         object_states => [ 
             $self => [
                 qw/ 
-		    _start _sock_input _sock_down
+		    _start _start_resolve _start_query
+		    _sock_input _sock_down
 		    _sock_up _sock_failed _time_out
 		  /
             ],
@@ -144,6 +152,49 @@ sub get_whois {
 # connects to whois-server (socket)
 sub _start {
     my ($kernel, $self) = @_[KERNEL,OBJECT];
+
+    $kernel->delay_add( '_time_out' => $self->{request}->{timeout} );
+
+    $kernel->yield('_start_resolve');
+}
+
+sub _start_resolve {
+    my ($kernel, $self) = @_[KERNEL,OBJECT];
+
+    my $response = $named->resolve(
+	event	=> "_start_query",
+	host    => $self->{request}->{host},
+	timeout => $self->{request}->{timeout},
+	context => { },
+    );
+
+    if ( $response ) {
+	$self->{resolved} = $response;
+	$kernel->yeild('_start_query');
+    }
+}
+
+sub _start_query {
+    my ($kernel, $self, $resolved) = @_[KERNEL, OBJECT, ARG0];
+
+    $resolved ||= $self->{resolved};
+
+    my $resolved_host;
+
+    if ( $resolved->{response} ) {
+	foreach my $answer ( $resolved->{response}->answer() ) {
+	    if ( $answer->type eq 'A' ) {
+		$resolved_host = $answer->rdatastr;
+		last;
+	    }
+	}
+    }
+
+    unless ( $resolved_host ) {
+	$kernel->yield( '_sock_failed', 
+	    'host resolve of '.$self->{request}{host}.'failed', '', '' );
+	return;
+    }
 
     if ( not exists $self->{request}{local_ip} ) {
 	my $local_ip = next_local_ip(
@@ -188,19 +239,16 @@ sub _start {
         " from ".($request->{local_ip}||'default IP')."\n"
             if DEBUG;
 
-    
     $self->{server} = POE::Wheel::SocketFactory->new(
         SocketDomain   => AF_INET,
         SocketType     => SOCK_STREAM,
         SocketProtocol => 'tcp',
-        RemoteAddress  => $self->{request}->{host},
+        RemoteAddress  => $resolved_host,
         RemotePort     => $self->{request}->{port} || 43,
         BindAddress    => $self->{request}->{local_ip},
         SuccessEvent   => '_sock_up',
         FailureEvent   => '_sock_failed',
     );
-
-    $kernel->delay_add( '_time_out' => $self->{request}->{timeout} );
 
     undef;
 }
