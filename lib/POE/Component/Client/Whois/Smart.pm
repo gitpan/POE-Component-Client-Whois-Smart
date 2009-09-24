@@ -19,7 +19,7 @@ use utf8;
 use Module::Pluggable::Ordered search_path => 'POE::Component::Client::Whois::Smart';
 use UNIVERSAL::require;
 
-our $VERSION = '0.184';
+our $VERSION = '0.185';
 our $DEBUG;
 
 our @local_ips = ();
@@ -104,7 +104,7 @@ sub _start_manager {
     $args{manager_id} = $session->ID();
     $args{event}      = "_query_done";
     $args{timeout}    = $args{timeout} || 30;
-    
+
     $heap->{tasks}  = 0;
     $heap->{result} = {};
     

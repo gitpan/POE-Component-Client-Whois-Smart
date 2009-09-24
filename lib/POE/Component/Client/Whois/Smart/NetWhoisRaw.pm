@@ -30,6 +30,8 @@ use CLASS;
 use List::Util qw/first/;
 use Hash::MoreUtils qw/slice/;
 
+use Time::HiRes qw( time );
+
 use Data::Dumper;
 
 use POE::Component::Client::Whois::Smart; # for utility functions
@@ -192,7 +194,7 @@ sub _start_query {
 
     unless ( $resolved_host ) {
 	$kernel->yield( '_sock_failed', 
-	    'host resolve of '.$self->{request}{host}.'failed', '', '' );
+	    'host resolve of '.$self->{request}{host}.' failed', '', '' );
 	return;
     }
 
@@ -234,7 +236,7 @@ sub _start_query {
 
     $request->{referral_retry} = 0;
 
-    print "Query '".$request->{query_real}.
+    print time, " $self->{session_id}: Query '".$request->{query_real}.
         "' to ".$request->{host}.
         " from ".($request->{local_ip}||'default IP')."\n"
             if DEBUG;
@@ -387,6 +389,8 @@ sub process_query {
     }
 
     #warn Dumper $error, $response, $self->{result}; #if $error;
+    print time, " $self->{session_id}: DONE: '",$response->{query},
+	    "' to ",$response->{host}, "\n" if DEBUG;
 
     if ( !$error || ! @{ $self->{result} } ) {
 
@@ -436,7 +440,7 @@ sub process_query {
                 if DEBUG;
             
 	# check for next_local_ip here
-        if ( $response->{retry_another_ip}-- >= 0 ) {
+        if ( 0 && $response->{retry_another_ip}-- >= 0 ) {
 	    #warn "THERE!!!";
 
 	    # try to fetch next IP smart -- only all IP's are equal

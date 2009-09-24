@@ -20,6 +20,7 @@ my $build = Module::Build->new(
 	'Net::Whois::Raw'   => '1.56',
 	'CLASS'		    => 0,
 	'Tie::Cache::LRU'   => 0,
+	'Time::HiRes'       => 0,
     },
     create_makefile_pl => 'traditional',
 );

@@ -20,6 +20,8 @@ package POE::Component::Client::Whois::Smart::DirectI;
 use strict;
 use warnings;
 
+use Time::HiRes qw( time );
+
 use Net::Whois::Raw::Common;
 use SOAP::DirectI::Serialize;
 use SOAP::DirectI::Parse;
@@ -37,7 +39,7 @@ sub DEBUG { 1 }
 sub initialize {
     POE::Component::Client::HTTP->spawn(
 	Alias => 'ua_directi',
-	Timeout => 20, #$self->{request}->{timeout},
+	Timeout => 10, #$self->{request}->{timeout},
     );
 
     return 1;
@@ -69,8 +71,6 @@ sub query {
 
     if ( @my_queries ) {
 	++$heap->{tasks};
-        print "Query ".join(', ',@my_queries)." from DirectI\n" if DEBUG;
-
 	$class->get_whois_directi(
 	    \@my_queries, $heap, $args_ref,
 	);
@@ -81,6 +81,8 @@ sub get_whois_directi {
     my ($package, $domains, $heap, $args_ref) = @_;
 
     my @request_domains = grep { not exists $directi_cache{ $_ } } @$domains;
+
+#    warn Dumper $args_ref;
 
     my $self = bless { 
 	domains		=> $domains,
@@ -97,6 +99,12 @@ sub get_whois_directi {
         ],
         options => { trace => 0 },
     )->ID();
+
+    if ( DEBUG ) {
+	print time, " $self->{session_id}: Query ",
+	      join(', ', @$domains), " from DirectI\n"
+    }
+
 
     return $self;
 }
@@ -233,9 +241,9 @@ sub _start {
     #warn Dumper $self->{request};
 
     #$kernel->alias_resolve('ua_directi')->[OBJECT]{factory}->timeout(
-        #5,
-        #$self->{request}->{timeout}
+        #$self->{request}->{timeout},
     #);
+
     $kernel->post("ua_directi", "request", "_done", $req);
 }
 
@@ -264,11 +272,10 @@ sub _done {
 
     #warn $content, $@;
 
-
     my $response;
 
     if ( $@ ) {
-	$response->{error} = 'Timeout';
+	$response->{error} = $content =~ /Timeout/i ? 'Timeout' : $@;
     }
     elsif ( exists $data->{faultstring} ) {
 	$response->{error} = $data->{faultstring};
@@ -317,6 +324,13 @@ sub _response {
 	    error  => $status->{error},
 	}
     }
+
+    if ( DEBUG ) {
+	print	time,
+		" $self->{session_id}: DONE: Query ",
+		join(', ',@{ $response->{domains} } ), " from DirectI\n"
+    }
+
 
     #warn Dumper \%directi_cache;
 
