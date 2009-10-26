@@ -19,7 +19,7 @@ use utf8;
 use Module::Pluggable::Ordered search_path => 'POE::Component::Client::Whois::Smart';
 use UNIVERSAL::require;
 
-our $VERSION = '0.186';
+our $VERSION = '0.187';
 our $DEBUG;
 
 our @local_ips = ();
@@ -28,10 +28,12 @@ our %servers_ban = ();
 
 # HIJACK POE::Filter::HTTPChunk
 {
-    package POE::Filter::HTTPChunk;
+    package # hide from PAUSE
+	POE::Filter::HTTPChunk;
+
     use POE::Filter::HTTPChunk;
 
-    use Data::Dumper;
+    no warnings 'once', 'redefine';
 
     *get_one_old = \&get_one;
 
@@ -293,6 +295,8 @@ POE::Component::Client::Whois::Smart provides a very quick WHOIS queries
 with smart features to other POE sessions and components.
 The component will attempt to guess the appropriate whois server to connect
 to. Supports cacheing, HTTP-queries to some servers, stripping useless information, using more then one local IP, handling server's bans.
+
+B<WARNING>: This module changes body of POE::Filter::HTTPChunk to work correctly with DirectI SSL connection. See code for details.
 
 =head1 SYNOPSIS
 
