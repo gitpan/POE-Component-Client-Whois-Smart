@@ -1,6 +1,6 @@
 ---
 name: POE-Component-Client-Whois-Smart
-version: 0.185
+version: 0.186
 author: []
 abstract: Provides very quick WHOIS queries with smart features.
 license: perl
@@ -27,7 +27,7 @@ configure_requires:
 provides:
   POE::Component::Client::Whois::Smart:
     file: lib/POE/Component/Client/Whois/Smart.pm
-    version: 0.185
+    version: 0.186
   POE::Component::Client::Whois::Smart::Cache:
     file: lib/POE/Component/Client/Whois/Smart/Cache.pm
   POE::Component::Client::Whois::Smart::DirectI:
@@ -36,6 +36,8 @@ provides:
     file: lib/POE/Component/Client/Whois/Smart/NetWhoisRaw.pm
   POE::Component::Client::Whois::Smart::NetWhoisRawHTTP:
     file: lib/POE/Component/Client/Whois/Smart/NetWhoisRawHTTP.pm
+  POE::Filter::HTTPChunk:
+    file: lib/POE/Component/Client/Whois/Smart.pm
 generated_by: Module::Build version 0.35
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html

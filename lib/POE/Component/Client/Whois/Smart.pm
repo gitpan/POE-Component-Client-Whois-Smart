@@ -19,12 +19,49 @@ use utf8;
 use Module::Pluggable::Ordered search_path => 'POE::Component::Client::Whois::Smart';
 use UNIVERSAL::require;
 
-our $VERSION = '0.185';
+our $VERSION = '0.186';
 our $DEBUG;
 
 our @local_ips = ();
 our $local_ip_index;
 our %servers_ban = ();
+
+# HIJACK POE::Filter::HTTPChunk
+{
+    package POE::Filter::HTTPChunk;
+    use POE::Filter::HTTPChunk;
+
+    use Data::Dumper;
+
+    *get_one_old = \&get_one;
+
+    *get_one = sub {
+        my $self = shift;
+
+        my $retval = $self->get_one_old();
+
+        if ( 
+                $self->[CURRENT_STATE] & STATE_SIZE
+            &&  join('', @$retval) 
+                    =~
+                m{\A <\?xml.*?\?> \s* <(\S+) .* </\1> \z}smx
+        )
+        {
+            DEBUG and warn "HIJACKED: XML tags found";
+            if (    scalar @{ $self->[FRAMING_BUFFER] }
+                &&  $self->[FRAMING_BUFFER]->[0] =~ m/^0+\D/
+            )
+            {
+                # my heart is skipping, skipping
+                shift @{ $self->[FRAMING_BUFFER] };
+            }
+            # finish him!
+            push @$retval, bless {}, 'HTTP::Headers';
+        }
+
+        return $retval;
+    };
+}
 
 
 my $plugins_initialized;

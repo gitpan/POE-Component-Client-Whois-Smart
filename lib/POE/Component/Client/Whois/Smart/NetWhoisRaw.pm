@@ -440,7 +440,7 @@ sub process_query {
                 if DEBUG;
             
 	# check for next_local_ip here
-        if ( 0 && $response->{retry_another_ip}-- >= 0 ) {
+        if ( $response->{retry_another_ip}-- >= 0 ) {
 	    #warn "THERE!!!";
 
 	    # try to fetch next IP smart -- only all IP's are equal

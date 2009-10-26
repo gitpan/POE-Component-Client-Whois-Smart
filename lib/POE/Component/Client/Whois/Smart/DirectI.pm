@@ -240,9 +240,9 @@ sub _start {
 
     #warn Dumper $self->{request};
 
-    #$kernel->alias_resolve('ua_directi')->[OBJECT]{factory}->timeout(
-        #$self->{request}->{timeout},
-    #);
+    $kernel->alias_resolve('ua_directi')->[OBJECT]{factory}->timeout(
+        $self->{request}->{timeout},
+    );
 
     $kernel->post("ua_directi", "request", "_done", $req);
 }
@@ -326,6 +326,9 @@ sub _response {
     }
 
     if ( DEBUG ) {
+        # awainting 5.10 with //=
+        $self->{session_id} = defined $self->{session_id} 
+                            ?         $self->{session_id} : 'cached';
 	print	time,
 		" $self->{session_id}: DONE: Query ",
 		join(', ',@{ $response->{domains} } ), " from DirectI\n"
